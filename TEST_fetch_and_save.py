@@ -11,7 +11,6 @@ if __name__ == "__main__":
     db.create_database()
 
     # 2. List of movies to fetch and save
-    # You can replace these titles with others
     movie_titles_to_fetch = [
         "Inception",
         "The Matrix",

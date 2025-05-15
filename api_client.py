@@ -15,9 +15,6 @@ OMDB_BASE_URL = 'http://www.omdbapi.com/'
 
 def get_movie_details(title):
     """Fetches movie details from OMDb API by title."""
-    if OMDB_API_KEY == 'YOUR_OMDB_API_KEY':
-        logging.error("OMDb API Key is not set. Please replace 'YOUR_OMDB_API_KEY' in api_client.py")
-        return None
 
     params = {
         't': title,     # Search by title
