@@ -1,9 +1,3 @@
-build out a technical spec for this
-
-Show thinking
-
-Okay, here is a technical specification for the Simple Movie Tracker with API Integration, built with Streamlit, keeping it as basic as possible while covering all your requirements.
-
 **Technical Specification: Simple Movie Tracker**
 
 **1\. Introduction**
