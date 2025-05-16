@@ -232,11 +232,7 @@ else:
             use_container_width=True,
             hide_index=True,
             column_config=column_configuration,
-            # You can also set a default height for rows if images make them too large
-            # height = (len(df_to_display) + 1) * 35 + 3 # Example dynamic height
         )
-
-        # ... (Clear List Button and other code remain the same) ...
     else:
         st.info("Your movie list is empty. Add movies using the form above!")
         logging.info(f"UI Action: Displayed empty movie list message for user {st.session_state.user_id}.")
