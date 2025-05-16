@@ -11,7 +11,7 @@ load_dotenv()
 
 OMDB_API_KEY = os.getenv('OMDB_KEY')
 
-OMDB_BASE_URL = 'http://www.omdbapi.com/'
+OMDB_BASE_URL = 'https://www.omdbapi.com/'
 
 def get_movie_details(title):
     """Fetches movie details from OMDb API by title."""

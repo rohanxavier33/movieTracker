@@ -1,109 +1,98 @@
 import pytest
 from unittest.mock import patch, MagicMock
-import sqlite3
-from .. import db # Assuming db.py is in the parent directory
-from .. import api_client # Assuming api_client.py is in the parent directory
+import sqlite3 # Not strictly needed if only using db.py functions
 import os
+import tempfile # For temporary database file
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import db
+import api_client
 from passlib.hash import bcrypt # For setting up test user password
 
-# Use an in-memory database for testing db interactions
-TEST_DATABASE_NAME = ':memory:'
+DEFAULT_TEST_MOVIE_STATUS = "Want to Watch"
 
-# Sample successful API response (same as test_api_client)
+# Sample successful API response (simplified for brevity if full details not needed for every field)
 SUCCESS_RESPONSE_JSON = {
-    "Title": "Inception",
-    "Year": "2010",
-    "Rated": "PG-13",
-    "Released": "16 Jul 2010",
-    "Runtime": "148 min",
-    "Genre": "Action, Adventure, Sci-Fi",
-    "Director": "Christopher Nolan",
-    "Writer": "Christopher Nolan",
-    "Actors": "Leonardo DiCaprio, Joseph Gordon-Levitt, Elliot Page",
-    "Plot": "A thief who steals corporate secrets...",
-    "Language": "English, Japanese, French",
-    "Country": "United States, United Kingdom",
-    "Awards": "Won 4 Oscars. 157 other wins.",
-    "Poster": "https://m.media-amazon.com/images/M/...",
-    "Ratings": [{"Source": "Internet Movie Database", "Value": "8.8/10"}],
-    "Metascore": "74",
-    "imdbRating": "8.8",
-    "imdbVotes": "2,500,000",
-    "imdbID": "tt1375666",
-    "Type": "movie",
-    "DVD": "07 Dec 2010",
-    "BoxOffice": "$292,576,195",
-    "Production": "N/A",
-    "Website": "N/A",
-    "Response": "True" # IMPORTANT for OMDb success
+    "Title": "Inception", "Year": "2010", "Director": "Christopher Nolan",
+    "Genre": "Action, Adventure, Sci-Fi", "imdbID": "tt1375666", "Poster": "N/A",
+    "Response": "True"
 }
 
-
-# Fixture to setup the test environment: in-memory database, mock API key, add a test user
 @pytest.fixture(autouse=True)
 def setup_test_environment(monkeypatch):
-    # Set test database name for db module
-    monkeypatch.setattr(db, 'DATABASE_NAME', TEST_DATABASE_NAME)
-    # Create the table
-    db.create_database()
+    """
+    Sets up a temporary file database, mocks API key, and creates a default user.
+    Yields the user_id for use in tests. Cleans up after tests.
+    """
+    # Mock api_client.OMDB_API_KEY directly
+    monkeypatch.setattr(api_client, 'OMDB_API_KEY', 'fake_integration_test_key')
 
-    # Set fake API key for api_client module
-    monkeypatch.setattr(api_client, 'OMDB_API_KEY', 'fake_test_key')
-    # Mock st.secrets.get as api_client tries to use it
-    monkeypatch.setattr(api_client.st, 'secrets', MagicMock())
-    api_client.st.secrets.get.return_value = 'fake_test_key'
+    # Setup temporary database file
+    temp_db_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    TEST_DB_PATH = temp_db_file.name
+    temp_db_file.close()
+
+    monkeypatch.setattr(db, 'DATABASE_NAME', TEST_DB_PATH)
+    db.create_database() # Initialize schema in the temp file
 
     # Add a default user for integration tests
-    test_hashed_password = bcrypt.hash("testpass")
-    conn = sqlite3.connect(TEST_DATABASE_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO users (username, hashed_password) VALUES (?, ?)", ("testuser", test_hashed_password))
-    conn.commit()
-    conn.close()
+    test_username = "integration_test_user"
+    test_password = "testpass" # Not strictly needed for this test if user_id is yielded
+    user_id = db.add_user(test_username, test_password)
+    if not user_id:
+        pytest.fail(f"Failed to create user '{test_username}' in integration test setup.")
+    
+    yield user_id # Provide user_id to the test
 
-    # Return the test user ID for the test function if needed
-    user_id, _ = db.find_user_by_username("testuser")
-    yield user_id # Use yield to make it a teardown fixture if needed, though in-memory clears automatically
+    # Teardown: remove the temporary database file
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
 
 
 @patch('requests.get') # Mock the external API call
 def test_fetch_and_save_workflow_for_user(mock_get, setup_test_environment):
-    # The setup_test_environment fixture provides the test user ID
+    # setup_test_environment fixture provides the test user_id
     test_user_id = setup_test_environment
 
     # Configure the mock API response
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = SUCCESS_RESPONSE_JSON
-    mock_response.raise_for_status.return_value = None
-    mock_get.return_value = mock_response
+    mock_api_response = MagicMock()
+    mock_api_response.status_code = 200
+    mock_api_response.json.return_value = SUCCESS_RESPONSE_JSON
+    mock_api_response.raise_for_status.return_value = None
+    mock_get.return_value = mock_api_response
 
-    movie_title = "Inception"
+    movie_title_to_fetch = "Inception"
 
-    # Simulate the core logic flow that Streamlit app would trigger:
-    # 1. Fetch from API
-    movie_data = api_client.get_movie_details(movie_title)
+    # 1. Fetch movie details from API
+    fetched_movie_data = api_client.get_movie_details(movie_title_to_fetch)
 
-    # Ensure API call was successful in test setup
-    assert movie_data is not None
-    mock_get.assert_called_once() # Verify API was called
+    assert fetched_movie_data is not None
+    assert fetched_movie_data['imdbID'] == SUCCESS_RESPONSE_JSON['imdbID']
+    mock_get.assert_called_once_with(
+        'https://www.omdbapi.com/',
+        params={'t': movie_title_to_fetch, 'apikey': 'fake_integration_test_key', 'plot': 'short', 'r': 'json'}
+    )
 
-    # 2. Save to DB FOR THE TEST USER
-    success = db.add_movie(test_user_id, movie_data) # Pass user_id
-    assert success is True
+    # 2. Save the fetched movie data to the DB for the test user with a status
+    add_success = db.add_movie(test_user_id, fetched_movie_data, DEFAULT_TEST_MOVIE_STATUS)
+    assert add_success is True
 
-    # 3. Verify data is in the DB FOR THE TEST USER
-    conn = sqlite3.connect(TEST_DATABASE_NAME)
-    cursor = conn.cursor()
-    # Select by both user_id and imdb_id
-    cursor.execute("SELECT COUNT(*) FROM movies WHERE user_id = ? AND imdb_id = ?;",
-                   (test_user_id, SUCCESS_RESPONSE_JSON['imdbID']))
-    count = cursor.fetchone()[0]
-    conn.close()
+    # 3. Verify data is in the DB for the test user
+    user_movies = db.get_all_movies(test_user_id)
+    assert len(user_movies) == 1
+    
+    saved_movie = user_movies[0]
+    # Tuple structure from db.get_all_movies:
+    # (imdb_id, title, year, director, genre, poster_url, status, date_added)
+    assert saved_movie[0] == SUCCESS_RESPONSE_JSON['imdbID']    # imdb_id
+    assert saved_movie[1] == SUCCESS_RESPONSE_JSON['Title']     # title
+    assert saved_movie[6] == DEFAULT_TEST_MOVIE_STATUS        # status
 
-    assert count == 1 # Ensure one record was inserted for this user
+    # Try adding the same movie again for the same user - should be ignored
+    add_again_success = db.add_movie(test_user_id, fetched_movie_data, "Watched") # different status
+    assert add_again_success is False, "Adding a duplicate movie for the same user should be ignored"
 
-    # Verify retrieval using the db function
-    user_movies = db.get_all_movies(test_user_id) # Get movies for the test user
-    assert len(user_movies) == 1 # Should be one movie for this user
-    assert user_movies[0][1] == SUCCESS_RESPONSE_JSON['Title'] # Verify title of the retrieved movie
+    user_movies_after_reattempt = db.get_all_movies(test_user_id)
+    assert len(user_movies_after_reattempt) == 1 # Still only one movie
+    # The status should remain as it was when first added, as duplicates are ignored
+    assert user_movies_after_reattempt[0][6] == DEFAULT_TEST_MOVIE_STATUS

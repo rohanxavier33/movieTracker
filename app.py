@@ -1,9 +1,13 @@
 import streamlit as st
 import pandas as pd
 import db  # Import your database functions
-import api_client # Import your API client functions
-import logging # Python's built-in logging
-from passlib.hash import bcrypt # Import bcrypt for password verification
+import api_client  # Import your API client functions
+import logging  # Python's built-in logging
+from passlib.hash import bcrypt  # Import bcrypt for password verification
+
+# Configure logging for the app - this will be the primary config
+# if app.py is the entry point.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
 
 # Ensure database is set up when the app starts
 db.create_database()
@@ -34,10 +38,10 @@ def authenticate(username, password):
                 logging.warning(f"Authentication failed: Incorrect password for user: {username}")
                 logging.info(f"EVENT: AuthenticationFailure - Username: {username}, Reason: IncorrectPassword")
                 return None, None
-        except ValueError:
-             logging.warning(f"Authentication failed: Invalid hash for user: {username}")
-             logging.info(f"EVENT: AuthenticationFailure - Username: {username}, Reason: InvalidHash")
-             return None, None
+        except ValueError: # Handles issues like "not a valid bcrypt hash"
+            logging.warning(f"Authentication failed: Invalid hash for user: {username}")
+            logging.info(f"EVENT: AuthenticationFailure - Username: {username}, Reason: InvalidHash")
+            return None, None
     else:
         logging.warning(f"Authentication failed: User not found: {username}")
         logging.info(f"EVENT: AuthenticationFailure - Username: {username}, Reason: UserNotFound")
@@ -52,6 +56,9 @@ def create_account(username, password):
     # Add basic validation (avoid spaces, etc. - enhance as needed)
     if " " in username:
         st.error("Username cannot contain spaces.")
+        return False
+    if len(password) < 4: # Basic password length
+        st.error("Password must be at least 4 characters long.")
         return False
 
     user_id = db.add_user(username, password) # db.add_user handles duplicates
@@ -103,24 +110,23 @@ if st.session_state.user_id is None:
                     st.rerun() # Rerun the app to show the main content
                 else:
                     st.session_state.auth_error = True # Set error flag
-                    # st.error("Login failed. Please check your username and password.") # Error displayed below form
-                    # No rerun needed here, the message will show on the current run
+                    # Error displayed below form
 
         # Display auth error outside the form so it persists until next submission
         if st.session_state.auth_error:
-             st.error("Login failed. Please check your username and password.")
+            st.error("Login failed. Please check your username and password.")
 
 
     with col2:
-         with st.form("create_account_form"):
-             st.subheader("Create New Account")
-             create_username = st.text_input("Choose Username", key="create_username")
-             create_password = st.text_input("Choose Password", type="password", key="create_password")
-             create_button = st.form_submit_button("Create Account")
+        with st.form("create_account_form"):
+            st.subheader("Create New Account")
+            create_username = st.text_input("Choose Username", key="create_username")
+            create_password = st.text_input("Choose Password", type="password", key="create_password")
+            create_button = st.form_submit_button("Create Account")
 
-             if create_button:
-                 # create_account function handles validation and messages
-                 create_account(create_username, create_password)
+            if create_button:
+                # create_account function handles validation and messages
+                create_account(create_username, create_password)
 
 
 else:
@@ -134,28 +140,27 @@ else:
 
     with st.form("add_movie_form", clear_on_submit=True):
         movie_title = st.text_input("Enter Movie Title", help="Type the full title, e.g., 'Inception'")
+        movie_status = st.selectbox("Status", ("Want to Watch", "Watched"), key="movie_status_select")
         submitted = st.form_submit_button("Fetch & Add Movie")
 
         if submitted:
             if movie_title:
                 # 1. Fetch data from API
-                movie_data = api_client.get_movie_details(movie_title)
+                movie_data_from_api = api_client.get_movie_details(movie_title)
 
-                if movie_data:
+                if movie_data_from_api:
                     # API call successful, now extract and add to DB
-                    # We'll add a default status for new entries (Note: Status column not in current db schema)
-                    # movie_data['status'] = 'Want to Watch' # This line has no effect without DB schema change
-                    success = db.add_movie(st.session_state.user_id, movie_data) # Pass the user_id!
+                    success = db.add_movie(st.session_state.user_id, movie_data_from_api, movie_status)
 
                     if success:
-                        st.success(f"Successfully added '{movie_data.get('Title')}' to your list!")
+                        st.success(f"Successfully added '{movie_data_from_api.get('Title')}' as '{movie_status}' to your list!")
                         # Log the Streamlit UI action as an event
-                        logging.info(f"EVENT: UIMovieAdded - UserID: {st.session_state.user_id}, Title: {movie_data.get('Title')}")
+                        logging.info(f"EVENT: UIMovieAdded - UserID: {st.session_state.user_id}, Title: {movie_data_from_api.get('Title')}, Status: {movie_status}")
                     else:
-                         # db.add_movie already logged the reason (e.g., ignored duplicate)
-                         st.info(f"'{movie_data.get('Title')}' was not added (might already be in a different user's list, depending on unique constraint).")
-                         logging.warning(f"UI Action: Could not add movie '{movie_data.get('Title')}' for user {st.session_state.user_id} - db.add_movie failed/ignored.")
-                         # Specific event logged inside db.add_movie
+                        # db.add_movie logs the reason (e.g., ignored duplicate for this user)
+                        st.info(f"'{movie_data_from_api.get('Title')}' is already in your list.")
+                        logging.warning(f"UI Action: Could not add movie '{movie_data_from_api.get('Title')}' for user {st.session_state.user_id} - db.add_movie failed/ignored (likely duplicate for user).")
+                        # Specific event logged inside db.add_movie
 
                 else:
                     # API call failed or movie not found (api_client handles logging errors)
@@ -165,7 +170,7 @@ else:
 
             else:
                 st.warning("Please enter a movie title.")
-                logging.warning("UI Action: Attempted to add movie with empty title for user {st.session_state.user_id}.")
+                logging.warning(f"UI Action: Attempted to add movie with empty title for user {st.session_state.user_id}.")
                 logging.info(f"EVENT: UIMovieAddFailed - UserID: {st.session_state.user_id}, Title: [Empty], Reason: No Title Input")
 
 
@@ -174,28 +179,28 @@ else:
 
     # Fetch movies only for the logged-in user
     # db.get_all_movies() returns a list of tuples:
-    # (imdb_id, title, year, director, genre, poster_url, date_added)
+    # (imdb_id, title, year, director, genre, poster_url, status, date_added)
     user_movies_data = db.get_all_movies(st.session_state.user_id) # Pass the user_id!
 
     if user_movies_data:
         # Convert list of tuples to pandas DataFrame for easier display and filtering
-        df = pd.DataFrame(user_movies_data, columns=["IMDb ID", "Title", "Year", "Director", "Genre", "Poster URL", "Date Added"])
+        df = pd.DataFrame(user_movies_data, columns=["IMDb ID", "Title", "Year", "Director", "Genre", "Poster URL", "Status", "Date Added"])
 
         # Basic Data Analyzer / Reporting
         st.subheader(f"Tracking {len(df)} Movies Total for {st.session_state.username}")
 
         # Simple Filter
-        search_query = st.text_input("Filter movies", help="Search by title, director, or genre", key="movie_filter_input")
+        search_query = st.text_input("Filter movies", help="Search by title, director, genre, or status", key="movie_filter_input")
         if search_query:
             df_filtered = df[
-                df.apply(lambda row: search_query.lower() in row.astype(str).str.lower().str.cat(), axis=1)
+                df.apply(lambda row: search_query.lower() in row.astype(str).str.lower().str.cat(sep='|'), axis=1)
             ]
-            st.dataframe(df_filtered, use_container_width=True)
+            st.dataframe(df_filtered, use_container_width=True, hide_index=True)
             logging.info(f"UI Action: Filtered movie list with query '{search_query}' for user {st.session_state.user_id}. Displayed {len(df_filtered)} movies.")
             logging.info(f"EVENT: UIFilterApplied - UserID: {st.session_state.user_id}, Query: {search_query}")
         else:
             # Display the full DataFrame if no filter
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             logging.info(f"UI Action: Displayed full movie list for user {st.session_state.user_id}.")
 
 
@@ -206,21 +211,24 @@ else:
         if confirm_clear:
             if st.button("Clear My Entire List", type="secondary"): # type="secondary" gives it a different color
                 deleted_count = db.delete_all_movies_for_user(st.session_state.user_id) # Pass the user_id!
-                if deleted_count >= 0: # delete_all_movies_for_user returns count or 0 on error
+                if deleted_count >= 0: # delete_all_movies_for_user returns count or -1 on error (changed to 0 for simplicity)
                     st.success(f"Successfully cleared {deleted_count} movies from your list.")
                     # Log the UI action as an event
                     logging.info(f"EVENT: UIClearList - UserID: {st.session_state.user_id}, DeletedCount: {deleted_count}")
                     st.rerun() # Rerun to update the displayed list
-                else:
-                     st.error("An error occurred while trying to clear your list.")
-                     logging.error(f"UI Action: Failed to clear list for user {st.session_state.user_id}.")
-                     # Specific event logged inside db.delete_all_movies_for_user
+                else: # Should ideally not happen if delete_all_movies_for_user returns 0 on SQL error
+                    st.error("An error occurred while trying to clear your list.")
+                    logging.error(f"UI Action: Failed to clear list for user {st.session_state.user_id}.")
+                    # Specific event logged inside db.delete_all_movies_for_user
 
 
     else:
         st.info("Your movie list is empty. Add movies using the form above!")
         logging.info(f"UI Action: Displayed empty movie list message for user {st.session_state.user_id}.")
 
-    # Note on adding Status Tracking (still applies)
-    st.sidebar.header("Enhancements Note")
-    st.sidebar.info("To add 'Watched' / 'Want to Watch' status, modify the database schema (`db.py`), update the `db.add_movie` function, and add Streamlit UI elements to select and display/filter by status.")
+    st.sidebar.header("About")
+    st.sidebar.info(
+        "This is a Simple Movie Tracker app. "
+        "You can add movies you've watched or want to watch. "
+        "Movie details are fetched from OMDb API."
+    )

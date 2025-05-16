@@ -21,7 +21,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Run tests with pytest
-      # The tests will run using the in-memory database and mocked API calls.
-      # No actual API key or database file is needed for these tests.
+      # The OMDB_KEY environment variable is not strictly needed for tests
+      # as api_client.py is mocked to use a fake key or not make calls.
+      # However, if any test inadvertently needs it, set a dummy one.
       run: |
         pytest ./tests/
+      env:
+        OMDB_KEY: dummy_ci_key # For tests, though mocks should prevent actual use
