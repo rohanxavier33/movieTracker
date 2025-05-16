@@ -81,9 +81,9 @@ def logout():
     st.rerun() # Rerun the app to show the login screen
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Simple Movie Tracker", layout="wide")
+st.set_page_config(page_title="Movie Tracker", layout="wide")
 
-st.title("🎬 Simple Movie Tracker")
+st.title("Movie Tracker")
 
 # --- Login/Logout Logic and UI ---
 
@@ -228,7 +228,7 @@ else:
 
     st.sidebar.header("About")
     st.sidebar.info(
-        "This is a Simple Movie Tracker app. "
+        "This is a Movie Tracker app. "
         "You can add movies you've watched or want to watch. "
         "Movie details are fetched from OMDb API."
     )
