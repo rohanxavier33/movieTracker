@@ -174,37 +174,72 @@ else:
                 logging.info(f"EVENT: UIMovieAddFailed - UserID: {st.session_state.user_id}, Title: [Empty], Reason: No Title Input")
 
 
-    # --- Movie List and Reporting ---
+         # --- Movie List and Reporting ---
     st.header("Your Movie List")
 
-    # Fetch movies only for the logged-in user
-    # db.get_all_movies() returns a list of tuples:
-    # (imdb_id, title, year, director, genre, poster_url, status, date_added)
-    user_movies_data = db.get_all_movies(st.session_state.user_id) # Pass the user_id!
+    user_movies_data = db.get_all_movies(st.session_state.user_id)
 
     if user_movies_data:
-        # Convert list of tuples to pandas DataFrame for easier display and filtering
         df = pd.DataFrame(user_movies_data, columns=["IMDb ID", "Title", "Year", "Director", "Genre", "Poster URL", "Status", "Date Added"])
-        df = df.drop(columns=["IMDb ID", "Date Added"])  # Drop unnecessary columns for display
 
-        # Basic Data Analyzer / Reporting
         st.subheader(f"Tracking {len(df)} Movies Total for {st.session_state.username}")
 
-        # Simple Filter
+        # --- Define column configuration for displaying images ---
+        column_configuration = {
+            "Poster URL": st.column_config.ImageColumn(
+                label="Poster",  # This will be the new header label for the column
+                help="Double-click image to expand", # Optional help tooltip
+                width="small" # You can set "small", "medium", or "large"
+            ),
+            # You can also configure other columns if needed, for example:
+            "IMDb ID": st.column_config.TextColumn(
+                label="IMDb ID",
+                # Example: Make IMDb ID clickable (if you build the URL)
+                # This is more advanced and would require constructing the URL first
+                # help="Link to IMDb page"
+            ),
+            "Year": st.column_config.TextColumn(
+                label="Year",
+                width="small"
+            ),
+            "Status": st.column_config.TextColumn(
+                label="Status",
+                width="medium"
+            )
+        }
+
         search_query = st.text_input("Filter movies", help="Search by title, director, genre, or status", key="movie_filter_input")
+        
+        df_to_display = df
         if search_query:
+            # Ensure search is case-insensitive and searches across relevant string columns
+            # Making sure to only search in columns that are strings or can be meaningfully converted
+            string_columns = ["Title", "Director", "Genre", "Status", "IMDb ID", "Year"] # Poster URL is not for text search
+            
             df_filtered = df[
-                df.apply(lambda row: search_query.lower() in row.astype(str).str.lower().str.cat(sep='|'), axis=1)
+                df[string_columns].astype(str).apply(
+                    lambda row: search_query.lower() in row.str.lower().str.cat(sep='|'), axis=1
+                )
             ]
-            st.dataframe(df_filtered, use_container_width=True, hide_index=True)
+            df_to_display = df_filtered
             logging.info(f"UI Action: Filtered movie list with query '{search_query}' for user {st.session_state.user_id}. Displayed {len(df_filtered)} movies.")
             logging.info(f"EVENT: UIFilterApplied - UserID: {st.session_state.user_id}, Query: {search_query}")
         else:
-            # Display the full DataFrame if no filter
-            st.dataframe(df, use_container_width=True, hide_index=True)
             logging.info(f"UI Action: Displayed full movie list for user {st.session_state.user_id}.")
 
+        st.dataframe(
+            df_to_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config=column_configuration,
+            # You can also set a default height for rows if images make them too large
+            # height = (len(df_to_display) + 1) * 35 + 3 # Example dynamic height
+        )
 
+        # ... (Clear List Button and other code remain the same) ...
+    else:
+        st.info("Your movie list is empty. Add movies using the form above!")
+        logging.info(f"UI Action: Displayed empty movie list message for user {st.session_state.user_id}.")
         # --- Clear List Button ---
         st.subheader("Manage Your List")
         # Add a confirmation checkbox before showing the button
@@ -223,9 +258,9 @@ else:
                     # Specific event logged inside db.delete_all_movies_for_user
 
 
-    else:
-        st.info("Your movie list is empty. Add movies using the form above!")
-        logging.info(f"UI Action: Displayed empty movie list message for user {st.session_state.user_id}.")
+        else:
+            st.info("Your movie list is empty. Add movies using the form above!")
+            logging.info(f"UI Action: Displayed empty movie list message for user {st.session_state.user_id}.")
 
     st.sidebar.header("About")
     st.sidebar.info(
