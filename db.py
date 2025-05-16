@@ -1,22 +1,18 @@
+# db.py
+
 import sqlite3
 import logging
 from datetime import datetime
-# For basic password hashing
 from passlib.hash import bcrypt
 
-# Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 DATABASE_NAME = 'movies.db'
 
 def create_database():
-    """Creates the SQLite database and the users/movies tables if they don't exist."""
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-
-        # Create the users table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,15 +20,9 @@ def create_database():
                 hashed_password TEXT NOT NULL
             );
         ''')
-
-        # Create the movies table
-        # - user_id: Links to the user
-        # - imdb_id: OMDb movie ID
-        # - status: User-defined status (e.g., "Watched", "Want to Watch")
-        # - UNIQUE(user_id, imdb_id): Ensures a movie is unique per user list
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS movies (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT, -- Crucial for identifying specific movie entries
                 user_id INTEGER NOT NULL,
                 imdb_id TEXT NOT NULL,
                 title TEXT,
@@ -40,59 +30,46 @@ def create_database():
                 director TEXT,
                 genre TEXT,
                 poster_url TEXT,
-                status TEXT, -- Added status column
+                status TEXT,
+                user_rating INTEGER, -- New column for star ratings (1-5), allows NULL
                 date_added TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                CONSTRAINT user_movie_unique UNIQUE (user_id, imdb_id) -- Ensures movie is unique per user
+                CONSTRAINT user_movie_unique UNIQUE (user_id, imdb_id)
             );
         ''')
-
-        # Add index on user_id for performance on filtering user's movies
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_movies_user_id ON movies (user_id);')
-        # The UNIQUE constraint on (user_id, imdb_id) also creates an index automatically
-
         conn.commit()
-        logging.info(f"Database '{DATABASE_NAME}' and tables 'users', 'movies' ensured.")
-
+        logging.info(f"Database '{DATABASE_NAME}' and tables 'users', 'movies' ensured (with user_rating column).")
     except sqlite3.Error as e:
         logging.error(f"Database error during setup: {e}")
-    except Exception as e:
-        logging.error(f"Unexpected error during database setup: {e}")
     finally:
         if conn:
             conn.close()
 
-# --- User Management Functions ---
-
+# --- User Management Functions (add_user, find_user_by_username) ---
+# ... (These functions remain unchanged) ...
 def add_user(username, password):
     """Adds a new user to the database with a hashed password."""
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-
-        # Hash the password
         hashed_password = bcrypt.hash(password)
-
         cursor.execute('''
             INSERT INTO users (username, hashed_password)
             VALUES (?, ?)
         ''', (username, hashed_password))
         conn.commit()
-        user_id = cursor.lastrowid # Get the ID of the newly inserted user
+        user_id = cursor.lastrowid 
         logging.info(f"Successfully added user: {username} with ID: {user_id}")
         logging.info(f"EVENT: UserCreated - Username: {username}, UserID: {user_id}")
         return user_id
-
-    except sqlite3.IntegrityError: # This catches the UNIQUE constraint violation for username
+    except sqlite3.IntegrityError: 
         logging.warning(f"Attempted to add existing username: {username}")
         logging.info(f"EVENT: UserCreationFailed - Username: {username}, Reason: AlreadyExists")
-        return None # Username already exists
+        return None
     except sqlite3.Error as e:
         logging.error(f"Database error adding user {username}: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error adding user {username}: {e}")
         return None
     finally:
         if conn:
@@ -104,12 +81,10 @@ def find_user_by_username(username):
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-
         cursor.execute('''
             SELECT id, hashed_password FROM users WHERE username = ?
         ''', (username,))
         user_data = cursor.fetchone()
-
         if user_data:
             user_id, hashed_password = user_data
             logging.info(f"Found user by username: {username}")
@@ -117,87 +92,63 @@ def find_user_by_username(username):
         else:
             logging.info(f"User not found: {username}")
             return None, None
-
     except sqlite3.Error as e:
         logging.error(f"Database error finding user {username}: {e}")
-        return None, None
-    except Exception as e:
-        logging.error(f"Unexpected error finding user {username}: {e}")
         return None, None
     finally:
         if conn:
             conn.close()
 
-# --- Movie Management Functions (Updated for user_id and status) ---
-
+# --- Movie Management Functions ---
 def add_movie(user_id, movie_data, status):
-    """Inserts a movie record for a specific user with a status.
-    Uses INSERT OR IGNORE based on (user_id, imdb_id) to avoid duplicates for that user.
-    """
+    """Inserts a movie record (without initial rating) for a specific user with a status."""
     if user_id is None:
-        logging.error("Cannot add movie without a valid user_id.")
-        # Moved logging before return
         logging.info(f"EVENT: MovieAddFailed - Reason: NoUserIDProvided, Title: {movie_data.get('Title')}, Status: {status}")
+        logging.error("Cannot add movie without a valid user_id.")
         return False
-
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-
+        # user_rating is intentionally not set here; it's added/updated later
         cursor.execute('''
             INSERT OR IGNORE INTO movies (user_id, imdb_id, title, year, director, genre, poster_url, status, date_added)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            user_id,
-            movie_data.get('imdbID'),
-            movie_data.get('Title'),
-            movie_data.get('Year'),
-            movie_data.get('Director'),
-            movie_data.get('Genre'),
-            movie_data.get('Poster'),
-            status, # Added status
-            datetime.now().isoformat() # Store current timestamp
+            user_id, movie_data.get('imdbID'), movie_data.get('Title'),
+            movie_data.get('Year'), movie_data.get('Director'), movie_data.get('Genre'),
+            movie_data.get('Poster'), status, datetime.now().isoformat()
         ))
         conn.commit()
-
         if cursor.rowcount > 0:
             logging.info(f"Successfully added movie for user {user_id}: {movie_data.get('Title')} ({movie_data.get('imdbID')}) with status '{status}'")
             logging.info(f"EVENT: MovieAdded - UserID: {user_id}, Title: {movie_data.get('Title')}, IMDbID: {movie_data.get('imdbID')}, Status: {status}")
-            return True # Successfully added
+            return True
         else:
-            # This means the (user_id, imdb_id) combination already exists.
             logging.info(f"Movie already exists for user {user_id}: {movie_data.get('Title')} ({movie_data.get('imdbID')}). Insert ignored.")
             logging.info(f"EVENT: MovieIgnoredDuplicateForUser - UserID: {user_id}, Title: {movie_data.get('Title')}, IMDbID: {movie_data.get('imdbID')}")
-            return False # Was ignored because it already exists for this user
-
+            return False
     except sqlite3.Error as e:
         logging.error(f"Database error adding movie {movie_data.get('Title')} for user {user_id}: {e}")
         logging.info(f"EVENT: MovieAddFailed - UserID: {user_id}, Title: {movie_data.get('Title')}, Status: {status}, Reason: DBError - {e}")
-        return False
-    except Exception as e:
-        logging.error(f"Unexpected error adding movie {movie_data.get('Title')} for user {user_id}: {e}")
-        logging.info(f"EVENT: MovieAddFailed - UserID: {user_id}, Title: {movie_data.get('Title')}, Status: {status}, Reason: Unexpected - {e}")
         return False
     finally:
         if conn:
             conn.close()
 
 def get_all_movies(user_id):
-    """Fetches all movie records for a specific user from the database, including status."""
+    """Fetches all movie records for a specific user, including DB ID and user_rating."""
     if user_id is None:
-        logging.error("Cannot get movies without a valid user_id.")
-        # Moved logging before return
         logging.info(f"EVENT: MoviesGetFailed - Reason: NoUserIDProvided")
+        logging.error("Cannot get movies without a valid user_id.")
         return []
-
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-        # Added 'status' to the SELECT statement
+        # Added 'id' (movie's primary key) and 'user_rating' to the SELECT statement
         cursor.execute('''
-            SELECT imdb_id, title, year, director, genre, poster_url, status, date_added 
+            SELECT id, imdb_id, title, year, director, genre, poster_url, status, user_rating, date_added 
             FROM movies 
             WHERE user_id = ? 
             ORDER BY date_added DESC;
@@ -210,46 +161,61 @@ def get_all_movies(user_id):
         logging.error(f"Database error fetching movies for user {user_id}: {e}")
         logging.info(f"EVENT: MoviesGetFailed - UserID: {user_id}, Reason: DBError - {e}")
         return []
-    except Exception as e:
-        logging.error(f"Unexpected error fetching movies for user {user_id}: {e}")
-        logging.info(f"EVENT: MoviesGetFailed - UserID: {user_id}, Reason: Unexpected - {e}")
-        return []
     finally:
         if conn:
             conn.close()
 
-# --- New Function to Clear User's List ---
+def update_movie_rating(movie_db_id, user_rating):
+    """Updates the user's rating for a specific movie entry (by its DB ID).
+       Allows user_rating to be None to clear a rating.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE movies
+            SET user_rating = ?
+            WHERE id = ? 
+        ''', (user_rating, movie_db_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            logging.info(f"Successfully updated rating for movie_db_id {movie_db_id} to {user_rating}.")
+            logging.info(f"EVENT: MovieRatingUpdated - MovieDBID: {movie_db_id}, Rating: {user_rating}")
+            return True
+        # It's possible the movie_db_id doesn't exist, though unlikely if coming from UI
+        logging.warning(f"No movie found with movie_db_id {movie_db_id} to update rating, or rating was the same.")
+        return False # Or True if no change is not an error
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating rating for movie_db_id {movie_db_id}: {e}")
+        logging.info(f"EVENT: MovieRatingUpdateFailed - MovieDBID: {movie_db_id}, Rating: {user_rating}, Reason: DBError - {e}")
+
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 def delete_all_movies_for_user(user_id):
     """Deletes all movie records for a specific user."""
     if user_id is None:
-        logging.error("Cannot delete movies without a valid user_id.")
-        # Moved logging before return
         logging.info(f"EVENT: MoviesDeleteFailed - Reason: NoUserIDProvided")
-        return 0 # Return 0 for consistency, error logged
-
+        logging.error("Cannot delete movies without a valid user_id.")
+        return 0 
     conn = None
     deleted_count = 0
     try:
         conn = sqlite3.connect(DATABASE_NAME)
         cursor = conn.cursor()
-
         cursor.execute('DELETE FROM movies WHERE user_id = ?;', (user_id,))
         deleted_count = cursor.rowcount
         conn.commit()
-
         logging.info(f"Successfully deleted {deleted_count} movies for user {user_id}.")
         logging.info(f"EVENT: MoviesDeleted - UserID: {user_id}, Count: {deleted_count}")
         return deleted_count
-
     except sqlite3.Error as e:
         logging.error(f"Database error deleting movies for user {user_id}: {e}")
         logging.info(f"EVENT: MoviesDeleteFailed - UserID: {user_id}, Reason: DBError - {e}")
-        return 0 # Return 0 on error for simplicity in UI handling
-    except Exception as e:
-        logging.error(f"Unexpected error deleting movies for user {user_id}: {e}")
-        logging.info(f"EVENT: MoviesDeleteFailed - UserID: {user_id}, Reason: Unexpected - {e}")
-        return 0 # Return 0 on error
+        return 0 
     finally:
         if conn:
             conn.close()
