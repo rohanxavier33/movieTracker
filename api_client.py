@@ -2,6 +2,7 @@ import requests
 import logging
 import os
 from dotenv import load_dotenv
+import streamlit as st
 
 # Configure basic logging (can be shared or configured in main script)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -9,7 +10,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Load environment variables from .env file
 load_dotenv()
 
-OMDB_API_KEY = os.getenv('OMDB_KEY')
+# OMDB_API_KEY = os.getenv('OMDB_KEY')
+OMDB_API_KEY = st.secrets["OMDB_KEY"]
 
 OMDB_BASE_URL = 'https://www.omdbapi.com/'
 
