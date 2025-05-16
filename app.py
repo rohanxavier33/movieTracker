@@ -185,6 +185,7 @@ else:
     if user_movies_data:
         # Convert list of tuples to pandas DataFrame for easier display and filtering
         df = pd.DataFrame(user_movies_data, columns=["IMDb ID", "Title", "Year", "Director", "Genre", "Poster URL", "Status", "Date Added"])
+        df = df.drop(columns=["IMDb ID", "Date Added"])  # Drop unnecessary columns for display
 
         # Basic Data Analyzer / Reporting
         st.subheader(f"Tracking {len(df)} Movies Total for {st.session_state.username}")
