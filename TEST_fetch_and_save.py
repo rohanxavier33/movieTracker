@@ -1,16 +1,14 @@
 import db
 import api_client
-import logging # Logging is configured in db.py and api_client.py
-
-# --- Main Execution ---
+import logging
 
 if __name__ == "__main__":
     logging.info("Starting movie data fetching and saving process.")
 
-    # 1. Set up the database (creates file and table if needed)
+    # Set up the database (creates file and table if needed)
     db.create_database()
 
-    # 2. List of movies to fetch and save
+    # List of movies to fetch and save
     movie_titles_to_fetch = [
         "Inception",
         "The Matrix",
@@ -20,7 +18,7 @@ if __name__ == "__main__":
         "Movie That Does Not Exist 12345" # Example of a movie that won't be found
     ]
 
-    # 3. Fetch data from API and save to database
+    # Fetch data from API and save to database
     logging.info(f"Attempting to fetch and save {len(movie_titles_to_fetch)} movies...")
     for title in movie_titles_to_fetch:
         movie_data = api_client.get_movie_details(title) # Fetch data from API
@@ -34,7 +32,7 @@ if __name__ == "__main__":
 
     logging.info("Finished attempting to fetch and save movies.")
 
-    # 4. Verify data by fetching all records and printing (optional)
+    # Verify data by fetching all records and printing (optional)
     logging.info("\nFetching all movies from the database to verify:")
     all_movies = db.get_all_movies()
     if all_movies:
